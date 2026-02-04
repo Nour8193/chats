@@ -1,71 +1,68 @@
 import streamlit as st
-import pandas as pd
+import os
+from dotenv import load_dotenv
 from utils.gemini_handler import GeminiAssistant
-import json
+
+# Загрузка переменных окружения
+load_dotenv()
 
 # Настройка страницы
 st.set_page_config(
-    page_title="Проектный консультант Gemini",
-    page_icon="🎓",
+    page_title="🎓 Проектный навигатор Gemini",
+    page_icon="📊",
     layout="wide"
 )
 
-# Инициализация ассистента
-@st.cache_resource
-def get_assistant():
-    return GeminiAssistant()
-
-assistant = get_assistant()
-
-# Инициализация истории в session_state
-if "history" not in st.session_state:
-    st.session_state.history = []
-if "current_task" not in st.session_state:
-    st.session_state.current_task = "budget"
-
-# Заголовок и описание
-st.title("🎓 Проектный консультант для педагога")
+# Заголовок
+st.title("🎓 Проектный навигатор для педагога")
 st.markdown("""
 ИИ-помощник на основе **Google Gemini Pro** для планирования образовательных проектов.
-Выберите задачу и опишите ваш проект для получения персонализированных рекомендаций.
 """)
 
-# Боковая панель с выбором задачи
+# Инициализация сессионных переменных
+if "history" not in st.session_state:
+    st.session_state.history = []
+if "assistant" not in st.session_state:
+    try:
+        st.session_state.assistant = GeminiAssistant()
+        st.success("✅ Gemini API подключен успешно!")
+    except Exception as e:
+        st.error(f"❌ Ошибка инициализации Gemini: {e}")
+
+# Боковая панель
 with st.sidebar:
-    st.header("📋 Задачи проекта")
+    st.header("⚙️ Настройки")
     
-    task = st.radio(
-        "Выберите тип задачи:",
-        ["💰 Бюджетирование", "⚠️ Анализ рисков", "📊 Мониторинг", 
-         "🎤 Презентация", "🚀 Инициация проекта"],
-        index=0
+    # Проверка API ключа
+    api_key = os.getenv("GEMINI_API_KEY")
+    if api_key:
+        st.success("✅ API ключ найден")
+    else:
+        st.error("❌ API ключ не найден в .env файле")
+        st.info("Создайте файл .env с содержимым: GEMINI_API_KEY=ваш_ключ")
+    
+    st.divider()
+    
+    st.header("📋 Выбор задачи")
+    task_type = st.selectbox(
+        "Тип задачи:",
+        ["💰 Бюджетирование", "⚠️ Анализ рисков", "📊 Мониторинг", "🎤 Презентация", "🚀 Инициация"]
     )
     
-    # Маппинг выбора на тип задачи
+    # Маппинг
     task_map = {
         "💰 Бюджетирование": "budget",
-        "⚠️ Анализ рисков": "risks", 
+        "⚠️ Анализ рисков": "risks",
         "📊 Мониторинг": "monitoring",
         "🎤 Презентация": "presentation",
-        "🚀 Инициация проекта": "initiation"
+        "🚀 Инициация": "initiation"
     }
     
-    st.session_state.current_task = task_map[task]
+    current_task = task_map[task_type]
     
     st.divider()
     
-    st.header("📁 Шаблоны")
-    if st.button("📄 Бюджетная таблица"):
-        st.session_state.template = "budget"
-    if st.button("⚠️ Чек-лист рисков"):
-        st.session_state.template = "risks"
-    if st.button("🎯 Структура презентации"):
-        st.session_state.template = "presentation"
-    
-    st.divider()
-    
-    # Очистка истории
-    if st.button("🗑️ Очистить историю"):
+    if st.button("🗑️ Очистить историю", type="secondary"):
         st.session_state.history = []
         st.rerun()
 
@@ -73,140 +70,113 @@ with st.sidebar:
 col1, col2 = st.columns([2, 1])
 
 with col1:
-    st.header(f"Задача: {task}")
+    st.subheader(f"Задача: {task_type}")
     
-    # Поле ввода с примером
-    example_texts = {
-        "budget": "Пример: 'Нужно создать бюджет для школьного медиацентра. Требуется: 3 ноутбука, камера, микрофоны, ПО для монтажа. Бюджет до 150 000 руб.'",
-        "risks": "Пример: 'Определи риски для проекта школьного научного клуба. Включи: технические, кадровые, организационные риски.'",
-        "presentation": "Пример: 'Нужна структура 7-минутной презентации проекта \"Экологический патруль\" для конкурса. Аудитория — городская администрация.'"
+    # Примеры запросов
+    examples = {
+        "budget": "Пример: 'Создай бюджет для школьного медиацентра: 3 ноутбука, камера, микрофоны, ПО. Бюджет до 150 000 руб.'",
+        "risks": "Пример: 'Проанализируй риски для IT-клуба: технические, кадровые, организационные.'",
+        "presentation": "Пример: 'Нужна структура 5-минутной презентации для конкурса. Аудитория — администрация города.'"
     }
     
+    # Поле ввода
     user_input = st.text_area(
-        "Опишите вашу задачу:",
-        value=example_texts.get(st.session_state.current_task, ""),
-        height=150,
-        key="user_input"
+        "📝 Опишите вашу задачу:",
+        value=examples.get(current_task, "Опишите ваш проект..."),
+        height=120,
+        key="input"
     )
     
-    # Кнопки действий
-    col_btn1, col_btn2, col_btn3 = st.columns(3)
-    
-    with col_btn1:
-        if st.button("🚀 Получить решение", type="primary", use_container_width=True):
-            if user_input and user_input != example_texts.get(st.session_state.current_task, ""):
-                with st.spinner("Gemini анализирует задачу..."):
-                    # Добавляем запрос в историю
-                    st.session_state.history.append({
-                        "role": "user", 
-                        "content": user_input,
-                        "task": st.session_state.current_task
-                    })
-                    
+    # Кнопка генерации
+    if st.button("🚀 Сгенерировать решение", type="primary", use_container_width=True):
+        if user_input and user_input != examples.get(current_task, ""):
+            # Добавляем в историю
+            st.session_state.history.append({
+                "role": "user",
+                "content": user_input,
+                "task": current_task
+            })
+            
+            # Показываем индикатор загрузки
+            with st.spinner("Gemini анализирует..."):
+                try:
                     # Получаем ответ
-                    response = assistant.generate_response(
-                        user_input, 
-                        st.session_state.current_task,
-                        st.session_state.history
+                    response = st.session_state.assistant.generate_response(
+                        user_input=user_input,
+                        task_type=current_task,
+                        history=st.session_state.history
                     )
                     
                     # Добавляем ответ в историю
                     st.session_state.history.append({
                         "role": "assistant",
                         "content": response,
-                        "task": st.session_state.current_task
+                        "task": current_task
                     })
                     
                     st.rerun()
-    
-    with col_btn2:
-        if st.button("💾 Экспорт в Google Docs", use_container_width=True):
-            st.info("Функция экспорта в разработке...")
-    
-    with col_btn3:
-        if st.button("📥 Скачать шаблон", use_container_width=True):
-            st.info("Выберите шаблон в боковой панели")
+                    
+                except Exception as e:
+                    st.error(f"Ошибка: {e}")
 
 with col2:
-    st.header("📝 История диалога")
-    
+    st.subheader("📜 История диалога")
     if st.session_state.history:
-        for i, msg in enumerate(st.session_state.history[-5:]):  # Показываем последние 5 сообщений
-            with st.chat_message("user" if msg["role"] == "user" else "assistant"):
-                # Обрезаем длинные сообщения для предпросмотра
-                preview = msg["content"][:200] + "..." if len(msg["content"]) > 200 else msg["content"]
-                st.markdown(f"**{msg['task'].upper()}** - {msg['role'].title()}")
-                st.markdown(preview)
-                if st.button("📄 Показать полностью", key=f"show_{i}"):
-                    st.session_state[f"show_full_{i}"] = not st.session_state.get(f"show_full_{i}", False)
-                
-                if st.session_state.get(f"show_full_{i}", False):
-                    st.markdown(msg["content"])
+        for i, msg in enumerate(st.session_state.history):
+            if msg["role"] == "user":
+                st.markdown(f"**👤 Вы:** {msg['content'][:80]}...")
+            else:
+                st.markdown(f"**🤖 Ассистент:** {msg['content'][:100]}...")
+            st.divider()
     else:
-        st.info("История диалога пуста. Начните общение!")
+        st.info("Здесь будет история вашего диалога")
 
 # Отображение последнего ответа
 if st.session_state.history and st.session_state.history[-1]["role"] == "assistant":
     st.divider()
-    st.header("💡 Решение от Gemini")
+    st.subheader("💡 Решение от Gemini")
     
     last_response = st.session_state.history[-1]["content"]
     
-    # Парсинг ответа для красивого отображения
-    if "|" in last_response and "-" in last_response:  # Обнаружили таблицу Markdown
-        # Пытаемся извлечь таблицу
-        lines = last_response.split('\n')
-        table_start = None
-        table_end = None
-        
-        for i, line in enumerate(lines):
-            if "|---" in line:
-                table_start = i - 1
-            elif table_start is not None and "---" not in line and "|" in line:
-                table_end = i
-        
-        if table_start is not None and table_end is not None:
-            table_lines = lines[table_start:table_end+1]
-            table_md = "\n".join(table_lines)
-            
-            # Отображаем таблицу
-            st.markdown("### 📊 Сгенерированная таблица")
-            st.markdown(table_md)
-            
-            # Остальной текст
-            other_text = "\n".join(lines[:table_start] + lines[table_end+1:])
-            if other_text.strip():
-                st.markdown("### 📝 Рекомендации")
-                st.markdown(other_text)
-    else:
-        # Просто отображаем текст
-        st.markdown(last_response)
+    # Отображаем ответ с форматированием
+    st.markdown(last_response)
     
     # Кнопки для работы с ответом
-    col_copy, col_save = st.columns(2)
-    with col_copy:
-        if st.button("📋 Копировать ответ"):
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("📋 Копировать", use_container_width=True):
             st.code(last_response, language="markdown")
-            st.success("Ответ скопирован в буфер (используйте Ctrl+C)")
-    
-    with col_save:
-        if st.button("💾 Сохранить в файл"):
-            with open(f"рекомендации_{st.session_state.current_task}.md", "w", encoding="utf-8") as f:
+            
+    with col2:
+        if st.button("💾 Сохранить в файл", use_container_width=True):
+            filename = f"gemini_рекомендации_{current_task}.md"
+            with open(filename, "w", encoding="utf-8") as f:
                 f.write(last_response)
-            st.success(f"Файл сохранен: рекомендации_{st.session_state.current_task}.md")
-
-# Информация о системе
-with st.expander("ℹ️ О системе"):
-    st.markdown("""
-    **Технологии:**
-    - Backend: Google Gemini Pro 1.5 API
-    - Frontend: Streamlit (Python)
-    - Контекст: 8192 токена
-    - История: 6 последних сообщений
+            st.success(f"Сохранено в {filename}")
     
-    **Особенности:**
-    - Бесплатный API (до 60 запросов в минуту)
-    - Поддержка мультимодальности (текст, изображения, PDF)
-    - Интеграция с Google Workspace (в разработке)
-    - Сохранение контекста диалога
+    with col3:
+        if st.button("🔄 Новый запрос", use_container_width=True):
+            st.rerun()
+
+# Футер с информацией
+st.divider()
+with st.expander("ℹ️ Информация о системе"):
+    st.markdown("""
+    ### Технологии:
+    - **Модель:** Google Gemini Pro 1.5
+    - **Интерфейс:** Streamlit (Python)
+    - **Контекст:** 2048 токенов
+    - **История:** 4 последних сообщения
+    
+    ### Инструкция по настройке:
+    1. Получите API ключ на [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+    2. Создайте файл `.env` в папке проекта
+    3. Добавьте строку: `GEMINI_API_KEY=ваш_ключ_здесь`
+    4. Запустите: `streamlit run app.py`
+    
+    ### Ограничения:
+    - Бесплатный лимит: 60 запросов в минуту
+    - Для учебных проектов достаточно
+    - Поддержка русского языка: отличная
     """)
