@@ -1,83 +1,94 @@
 import google.generativeai as genai
 import os
 from dotenv import load_dotenv
+import time
 
 load_dotenv()
 
 class GeminiAssistant:
     def __init__(self):
-        # Настройка Gemini API
-        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+        # Настройка Gemini API с корректным ключом
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY не найден в .env файле")
         
-        # Конфигурация модели
-        generation_config = {
+        genai.configure(api_key=api_key)
+        
+        # Инициализация модели
+        self.model = genai.GenerativeModel('gemini-1.5-pro')
+        
+        # Настройка параметров генерации
+        self.generation_config = {
             "temperature": 0.7,
             "top_p": 0.95,
             "top_k": 40,
-            "max_output_tokens": 8192,
+            "max_output_tokens": 2048,
         }
-        
-        safety_settings = [
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-        ]
-        
-        # Инициализация модели
-        self.model = genai.GenerativeModel(
-            model_name="gemini-1.5-pro",
-            generation_config=generation_config,
-            safety_settings=safety_settings
-        )
-        
-        # История диалога
-        self.history = []
     
     def get_system_prompt(self, task_type):
-        """Получение системного промпта в зависимости от задачи"""
-        prompts = {
-            "budget": """Ты — эксперт по бюджетированию образовательных проектов. Твоя задача:
-1. Помогать создавать реалистичные сметы для школьных проектов
-2. Предлагать источники финансирования (гранты, краудфандинг, спонсоры)
-3. Давать советы по экономии средств
-4. Создавать таблицы в формате Markdown
-
-Всегда структурируй ответ: сначала краткий вывод, затем детали в таблицах, затем рекомендации.""",
+        """Получение системного промпта"""
+        base_prompt = """Ты — "Проектный навигатор", ИИ-помощник для педагогов. 
+        Твоя задача — помогать в планировании и реализации образовательных проектов.
+        Будь конкретным, практичным, предлагай готовые шаблоны и таблицы.
+        Форматируй ответ с использованием Markdown."""
+        
+        task_prompts = {
+            "budget": f"""{base_prompt}
+            СФОКУСИРУЙСЯ НА:
+            1. Создание реалистичных бюджетных таблиц
+            2. Поиск источников финансирования (гранты, спонсоры)
+            3. Советы по оптимизации расходов
+            4. Шаблоны для Google Sheets
             
-            "risks": """Ты — риск-менеджер с опытом в образовании. Твоя задача:
-1. Выявлять потенциальные риски проектов
-2. Оценивать вероятность и влияние
-3. Предлагать конкретные меры минимизации
-4. Создавать чек-листы действий
-
-Используй матрицу рисков и предоставляй практические рекомендации.""",
+            Формат: краткий вывод → таблица → рекомендации""",
             
-            "presentation": """Ты — специалист по презентациям и сторителлингу. Твоя задача:
-1. Создавать структуру презентации для разных аудиторий
-2. Предлагать визуальные идеи
-3. Готовить тезисы для выступления
-4. Продумывать ответы на сложные вопросы
-
-Фокус на образовательных проектах для школьной аудитории."""
+            "risks": f"""{base_prompt}
+            СФОКУСИРУЙСЯ НА:
+            1. Идентификация рисков по категориям
+            2. Матрица вероятности/влияния
+            3. Конкретные меры минимизации
+            4. Чек-листы действий
+            
+            Используй таблицы и списки.""",
+            
+            "presentation": f"""{base_prompt}
+            СФОКУСИРУЙСЯ НА:
+            1. Структура презентации по времени
+            2. Визуальные идеи
+            3. Ключевые сообщения
+            4. Ответы на вопросы
+            
+            Предлагай конкретные слайды."""
         }
-        return prompts.get(task_type, "Ты — помощник педагога в реализации проектов.")
+        
+        return task_prompts.get(task_type, base_prompt)
     
     def generate_response(self, user_input, task_type="general", history=None):
-        """Генерация ответа с учетом истории"""
-        system_prompt = self.get_system_prompt(task_type)
-        
-        # Формирование полного промпта с историей
-        full_prompt = f"{system_prompt}\n\n"
-        
-        if history:
-            for msg in history[-6:]:  # Берем последние 6 сообщений для контекста
-                role = "Пользователь" if msg["role"] == "user" else "Ассистент"
-                full_prompt += f"{role}: {msg['content']}\n\n"
-        
-        full_prompt += f"Пользователь: {user_input}\n\nАссистент:"
-        
-        # Генерация ответа
-        response = self.model.generate_content(full_prompt)
-        
-        return response.text
+        """Основная функция генерации ответа"""
+        try:
+            # Формируем полный промпт
+            system_prompt = self.get_system_prompt(task_type)
+            
+            # Добавляем историю если есть
+            context = ""
+            if history and len(history) > 0:
+                for msg in history[-4:]:  # Берем последние 4 сообщения
+                    role_prefix = "Пользователь: " if msg["role"] == "user" else "Ассистент: "
+                    context += f"{role_prefix}{msg['content']}\n\n"
+            
+            full_prompt = f"{system_prompt}\n\n{context}Пользователь: {user_input}\n\nАссистент:"
+            
+            # Генерируем ответ
+            response = self.model.generate_content(
+                full_prompt,
+                generation_config=self.generation_config
+            )
+            
+            # Проверяем и возвращаем ответ
+            if response and hasattr(response, 'text'):
+                return response.text
+            else:
+                return "Не удалось получить ответ от Gemini API. Проверьте API ключ."
+                
+        except Exception as e:
+            return f"Ошибка при генерации ответа: {str(e)}\n\nПроверьте:\n1. API ключ\n2. Интернет-соединение\n3. Лимиты Gemini API"
